@@ -21,7 +21,7 @@
   },
   "homepage": "https://github.com/TheSharks/WildBeats#readme",
   "devDependencies": {
-    "eslint": "^3.11.1",
+    "eslint": "^3.12.1",
     "standard": "^8.6.0"
   },
   "dependencies": {
