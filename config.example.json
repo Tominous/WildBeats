@@ -1,7 +1,13 @@
 {
-  "bot": false,
-  "prefix": "!",
+  "prefix": "*",
   "token": "Discord API token",
-  "email": "Discord email if you arent going to use a bot account",
-  "password": "Discord password if you arent going to use a bot account"
+  "Server name or ID": {
+    "voice_channel": "Name or ID of voice channel",
+    "text_channel": "Name or ID of text channel",
+	"allowedRoled": ["Comma", "separated", "role names"]
+  },
+  "allowedUsers": {
+    "master": ["Your user ID"],
+    "admin": []
+  }
 }
