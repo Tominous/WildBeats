@@ -5,7 +5,6 @@ let winston = require('../runtime/winston.js');
 let needle = require('needle');
 let Commands = [];
 let info = {};
-let song = [];
 
 Commands.summon = {
     name: 'summon',
@@ -30,7 +29,9 @@ Commands.summon = {
                     title: [],
                     duration: [],
                     requester: [],
-                    waitMusic: []
+                    waitMusic: [],
+                    waitTitle: undefined,
+                    waitDuration: 0
                 };
                 voiceChan.join().then(() => {
                     Commands.skip.fn(bot, msg)
@@ -126,9 +127,9 @@ Commands.play = {
             if (suffix.length === 0) {
                 msg.reply('Say what you\'d like me to search for')
             } else if (/^http/.test(suffix)) {
-                fetch(bot, msg, suffix)
+                fetch(bot, msg, suffix);
             } else {
-                fetch(bot, msg, `ytsearch:${suffix}`)
+                fetch(bot, msg, `ytsearch:${suffix}`);
             }
         }
         // this command is garbage, needs to be rewritten to support more stuff
@@ -146,11 +147,15 @@ Commands.skip = {
                 if (info[msg.guild.id].waitMusic.length <= 1) {
                     shuffleList(Songs).then(arr => {
                         info[msg.guild.id].waitMusic = arr;
-                        playSong(bot, msg)
+                        info[msg.guild.id].skipping = setTimeout(function () {
+                            playSong(bot, msg);
+                        }, 2500)
                     })
                 } else {
                     info[msg.guild.id].waitMusic.shift();
-                    playSong(bot, msg)
+                    info[msg.guild.id].skipping = setTimeout(function () {
+                        playSong(bot, msg);
+                    }, 2500)
                 }
             } else {
                 info[msg.guild.id].duration.shift();
@@ -158,9 +163,12 @@ Commands.skip = {
                 info[msg.guild.id].requester.shift();
                 info[msg.guild.id].title.shift();
                 info[msg.guild.id].id.shift();
-                playSong(bot, msg)
+                info[msg.guild.id].skipping = setTimeout(function () {
+                    playSong(bot, msg);
+                }, 2500)
             }
         }
+
         // make it a vote system, if user has master privs skip right away
     }
 };
@@ -176,9 +184,9 @@ Commands.playlist = {
                 let arr = [];
                 arr.push(`Currently playing **${info[msg.guild.id].title[0]}** requested by *${msg.guild.members.find(m => m.id === info[msg.guild.id].requester[0]).username}*`);
                 for (let i = 1; i < info[msg.guild.id].link.length; i++) {
-                    arr.push(`${i}. ${info[msg.guild.id].title[i]} requested by ${msg.guild.members.find(m => m.id === info[msg.guild.id].requester[i]).username}`);
+                    arr.push(`${i}. **${info[msg.guild.id].title[i]}** requested by _${msg.guild.members.find(m => m.id === info[msg.guild.id].requester[i]).username}_`);
                     if (i === 9) {
-                        arr.push(`${info[msg.guild.id].title.length - 10 > 0 ? 'And about ' + info[msg.guild.id].title.length - 10 + ' more songs.' : null}`);
+                        arr.push(info[msg.guild.id].title.length - 10 > 0 ? `And about ${info[msg.guild.id].title.length - 10} more songs.` : null);
                         break
                     }
                 }
@@ -191,19 +199,71 @@ Commands.playlist = {
     }
 };
 
+Commands.timeleft = {
+    name: 'timeleft',
+    aliases: ['tl', 'nowplaying', 'current', 'np'],
+    help: 'Show the current track time compared to total duration..',
+    fn: function (bot, msg) {
+        let voiceCon = bot.VoiceConnections.find(o => o.voiceConnection.guild.id === msg.guild.id);
+        if (info[msg.guild.id].boundChannel.id === msg.channel.id && voiceCon) {
+            if (info[msg.guild.id].link.length === 0) {
+                msg.channel.sendMessage(`**Current song:** _${info[msg.guild.id].waitTitle}_\n:arrow_forward: ${progressBar(Math.round((info[msg.guild.id].encoder._encoderStream.timestamp / info[msg.guild.id].waitDuration) * 8))} **[${hhMMss(info[msg.guild.id].encoder._encoderStream.timestamp)}/${hhMMss(info[msg.guild.id].waitDuration)}]**`)
+            } else {
+                msg.channel.sendMessage(`**Current song:** _${info[msg.guild.id].title[0]}_\n**Requested by:** _${msg.guild.members.find(c => c.id === info[msg.guild.id].requester[0]).username}_\n:arrow_forward: ${progressBar(Math.round((info[msg.guild.id].encoder._encoderStream.timestamp / info[msg.guild.id].duration[0]) * 8))} **[${hhMMss(info[msg.guild.id].encoder._encoderStream.timestamp)}/${hhMMss(info[msg.guild.id].duration[0])}]**`)
+            }
+        }
+        function progressBar(percent) {
+            let str = "";
+            for (let i = 0; i < 8; i++) {
+                if (i == percent)
+                    str += "\uD83D\uDD18";
+                else
+                    str += "▬";
+            }
+            return str;
+        }
+    }
+};
+
 Commands.remove = {
-  name: 'remove',
-  aliases: ['delete'],
-  help: 'Remove a queued song by number or from a user.',
-  fn: function (bot, msg, suffix) {
-      if (isNaN(suffix) && msg.mentions.length >= 1) {
-          winston.info('This is for mentions')
-      } else if (suffix) {
-          winston.info('This is to purge just one')
-      } else {
-          winston.info('no suffix, tell person how to use command.')
-      }
-  }
+    name: 'remove',
+    aliases: ['delete'],
+    help: 'Remove a queued song by number or from a user.',
+    fn: function (bot, msg, suffix) {
+        if (info[msg.guild.id].boundChannel.id === msg.channel.id && info[msg.guild.id].title.length > 1) {
+            if (suffix && msg.mentions.length >= 1) {
+                winston.info('This is for mentions')
+            } else if (suffix) {
+                if (suffix === '0') {
+                    msg.reply('You cannot remove the current playing song, use skip instead.')
+                } else if (suffix.includes('-')) {
+                    let arr = suffix.split('-');
+                    if (arr[0] < 1 || arr[1] > info[msg.guild.id].title.length) {
+                        msg.reply('error message, i\'m lazy.')
+                    } else {
+                        info[msg.guild.id].title.splice(arr[0], arr[1]);
+                        info[msg.guild.id].link.splice(arr[0], arr[1]);
+                        info[msg.guild.id].id.splice(arr[0], arr[1]);
+                        info[msg.guild.id].requester.splice(arr[0], arr[1]);
+                        info[msg.guild.id].duration.splice(arr[0], arr[1]);
+                        msg.channel.sendMessage(`Tracks ${arr[0]} through ${arr[1]} have been removed from the playlist.`)
+                    }
+                } else {
+                    let trackName = info[msg.guild.id].title[suffix];
+                    info[msg.guild.id].title.splice(suffix, suffix);
+                    info[msg.guild.id].link.splice(suffix, suffix);
+                    info[msg.guild.id].id.splice(suffix, suffix);
+                    info[msg.guild.id].requester.splice(suffix, suffix);
+                    info[msg.guild.id].duration.splice(suffix, suffix);
+                    msg.channel.sendMessage(`Track ${trackName} has been removed from the playlist.`)
+                }
+            } else {
+                winston.info('no suffix, tell person how to use command.')
+            }
+        } else {
+            msg.reply('The playlist is currently empty, request some songs!')
+        }
+    }
 };
 
 Commands.eval = {
@@ -267,28 +327,30 @@ function fetch(bot, msg, suffix) {
                 info[msg.guild.id].id.push(i.id);
                 info[msg.guild.id].duration.push(i.duration);
                 info[msg.guild.id].requester.push(msg.author.id);
-                playSong(bot, msg)
+                playSong(bot, msg);
             } else {
                 info[msg.guild.id].link.push(i.url);
                 info[msg.guild.id].title.push(i.title);
                 info[msg.guild.id].id.push(i.id);
                 info[msg.guild.id].duration.push(i.duration);
                 info[msg.guild.id].requester.push(msg.author.id);
-                info[msg.guild.id].boundChannel.sendMessage(`Added **${i.title} [${i.duration}]** to the queue`)
+                info[msg.guild.id].boundChannel.sendMessage(`Added **${i.title} [${hhMMss(i.duration)}]** to the queue`)
             }
         }
     });
 }
 
 function playSong(bot, msg) {
-    let streamable = require('stream').Readable();
-    info[msg.guild.id].encoder = bot.VoiceConnections.find(v => v.voiceConnection.guild.id === msg.guild.id).voiceConnection.createExternalEncoder({
+    info[msg.guild.id].streamable = require('stream').Readable();
+    let streamable = info[msg.guild.id].streamable;
+    let encoder = bot.VoiceConnections.find(v => v.voiceConnection.guild.id === msg.guild.id).voiceConnection.createExternalEncoder({
         type: 'ffmpeg',
         format: 'pcm',
         source: '-',
+        inputArgs: ["-rtbufsize", "25M"],
         debug: true
     });
-    let encoder = info[msg.guild.id].encoder;
+    info[msg.guild.id].encoder = encoder;
     let chan = info[msg.guild.id].boundChannel;
     let options = {
         compressed: true, // sets 'Accept-Encoding' to 'gzip,deflate'
@@ -296,12 +358,14 @@ function playSong(bot, msg) {
         rejectUnauthorized: true  // verify SSL certificate
     };
     if (info[msg.guild.id].link.length === 0) {
-        DL.getInfo(info[msg.guild.id].waitMusic[0], (err, vid) => {
+        DL.getInfo(info[msg.guild.id].waitMusic[0], ['--verbose', '--skip-download', '-f bestaudio/worstaudio'], (err, vid) => {
             if (err) {
                 winston.error(err);
                 playSong(bot, msg)
             } else {
                 let waitingMusic = needle.get(vid.url, options);
+                info[msg.guild.id].waitTitle = vid.title;
+                info[msg.guild.id].waitDuration = vid.duration;
                 waitingMusic.on('readable', function () {
                     let chunk;
                     while (chunk = this.read()) {
@@ -309,17 +373,18 @@ function playSong(bot, msg) {
                     }
                 });
                 waitingMusic.on('end', (err) => {
-                    streamable.push(null);
                     if (err) {
                         winston.error(err)
                     } else {
+                        streamable.push(null);
                         if (chan.messages[chan.messages.length - 1].author.id === bot.User.id && chan.messages[chan.messages.length - 1].content.startsWith('Now playing')) {
-                            chan.messages[chan.messages.length - 1].edit(`Now playing **${vid.title} [${vid.duration}]**`)
+                            chan.messages[chan.messages.length - 1].edit(`Now playing **${vid.title} [${hhMMss(vid.duration)}]**`)
                         } else {
-                            chan.sendMessage(`Now playing **${vid.title} [${vid.duration}]**`)
+                            chan.sendMessage(`Now playing **${vid.title} [${hhMMss(vid.duration)}]**`)
                         }
                         streamable.pipe(encoder.stdin);
                         encoder.play();
+                        encoder._encoderStream.resetTimestamp();
                         encoder.voiceConnection.getEncoder().setVolume(info[msg.guild.id].volume);
                     }
                 })
@@ -339,12 +404,13 @@ function playSong(bot, msg) {
             } else {
                 streamable.push(null);
                 if (chan.messages[chan.messages.length - 1].author.id === bot.User.id && chan.messages[chan.messages.length - 1].content.startsWith('Now playing')) {
-                    chan.messages[chan.messages.length - 1].edit(`Now playing **${info[msg.guild.id].title[0]} [${info[msg.guild.id].duration[0]}]**`)
+                    chan.messages[chan.messages.length - 1].edit(`Now playing **${info[msg.guild.id].title[0]} [${hhMMss(info[msg.guild.id].duration[0])}]**`)
                 } else {
-                    chan.sendMessage(`Now playing **${info[msg.guild.id].title[0]} [${info[msg.guild.id].duration[0]}]**`)
+                    chan.sendMessage(`Now playing **${info[msg.guild.id].title[0]} [${hhMMss(info[msg.guild.id].duration[0])}]**`)
                 }
                 streamable.pipe(encoder.stdin);
                 encoder.play();
+                encoder._encoderStream.resetTimestamp();
                 encoder.voiceConnection.getEncoder().setVolume(info[msg.guild.id].volume);
             }
         });
@@ -354,7 +420,8 @@ function playSong(bot, msg) {
         // TO THE.. FUCK THE ERROR.
     });
     encoder.once('end', () => {
-            Commands.skip.fn(bot, msg)
+        encoder._encoderStream.resetTimestamp();
+        Commands.skip.fn(bot, msg)
     })
 }
 
@@ -370,4 +437,15 @@ function shuffleList(array) {
         }
         resolve(result);
     })
+}
+
+function hhMMss(time) {
+    let hours = (Math.floor(time / ((60 * 60)) % 24));
+    let minutes = (Math.floor(time / (60)) % 60);
+    let seconds = (Math.floor(time) % 60);
+    let parsedTime = [];
+    hours >= 1 ? parsedTime.push(hours) : null;
+    minutes >= 10 ? parsedTime.push(minutes) : parsedTime.push(`0${minutes}`);
+    seconds >= 10 ? parsedTime.push(seconds) : parsedTime.push(`0${seconds}`);
+    return parsedTime.join(':')
 }

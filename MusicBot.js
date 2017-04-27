@@ -17,6 +17,7 @@ bot.Dispatcher.on(Event.GATEWAY_READY, () => {
 
 bot.Dispatcher.on(Event.DISCONNECTED, () => {
   console.log('Disconnected, trying to reconnect...')
+    bot.connect()
 })
 
 bot.Dispatcher.on(Event.VOICE_DISCONNECTED, e => {
